@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Event {
+  id        String @id @default(cuid())
+  eventCode String @unique
+  name      String
+  status    String @default("PLANNING")
+
+  startDate DateTime
+  endDate   DateTime
+
+  venue      String?
+  guestCount Int?
+
+  description String?
+
+  venueId String?
+  spaceId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  functions Function[]
+  tasks     Task[]
+  resources Resource[]
+
+  venueRelation Venue? @relation("EventVenue", fields: [venueId], references: [id])
+  spaceRelation Space? @relation("EventSpace", fields: [spaceId], references: [id])
+
+  resourceAllocations ResourceAllocation[]
+}
+
+model Function {
+  id      String @id @default(cuid())
+  eventId String
+
+  name      String
+  startTime DateTime
+  endTime   DateTime
+
+  space      String?
+  guestCount Int?
+  status     String  @default("PLANNING")
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  allocations ResourceAllocation[]
+
+  @@index([eventId])
+}
+
+model Task {
+  id      String @id @default(cuid())
+  eventId String
+
+  name        String
+  description String?
+
+  status   String @default("TODO")
+  priority String @default("MEDIUM")
+
+  assignedTo String?
+  dueDate    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+model Resource {
+  id      String @id @default(cuid())
+  eventId String
+
+  name     String
+  type     String
+  quantity Int    @default(1)
+
+  status   String  @default("AVAILABLE")
+  location String?
+  notes    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  allocations ResourceAllocation[]
+
+  @@index([eventId])
+}
+
+model ResourceAllocation {
+  id         String @id @default(cuid())
+  resourceId String
+  functionId String
+
+  quantity         Int     @default(1)
+  requiredQuantity Int     @default(1)
+  notes            String?
+
+  createdAt DateTime @default(now())
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  function Function @relation(fields: [functionId], references: [id], onDelete: Cascade)
+  event    Event?   @relation(fields: [eventId], references: [id])
+  eventId  String?
+
+  @@unique([resourceId, functionId])
+  @@index([resourceId])
+  @@index([functionId])
+}
+
+model Venue {
+  id          String  @id @default(cuid())
+  name        String
+  address     String?
+  status      String  @default("ACTIVE")
+  description String?
+
+  spaces Space[]
+  events Event[] @relation("EventVenue")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+model Space {
+  id      String @id @default(cuid())
+  venueId String
+
+  name        String
+  capacity    Int?
+  status      String  @default("AVAILABLE")
+  description String?
+
+  venue  Venue   @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  events Event[] @relation("EventSpace")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([venueId])
+  @@index([status])
+}
