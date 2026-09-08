@@ -1,6 +1,91 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../lib/prisma";
 
+function calculatePriority(
+  guests: number,
+  start: Date,
+  status: string
+) {
+  let score = 0;
+  const reasons: string[] = [];
+
+  // --------------------------------------------------
+  // 1. Event status
+  // --------------------------------------------------
+
+  if (status === "CONFIRMED") {
+    score += 30;
+    reasons.push("confirmed booking");
+  } else if (status === "PLANNING") {
+    score += 15;
+  } else if (status === "HOLD") {
+    score += 5;
+  }
+
+  // --------------------------------------------------
+  // 2. Guest count
+  // --------------------------------------------------
+
+  if (guests >= 1000) {
+    score += 40;
+    reasons.push("large guest count");
+  } else if (guests >= 500) {
+    score += 30;
+    reasons.push("high guest count");
+  } else if (guests >= 200) {
+    score += 20;
+    reasons.push("medium guest count");
+  } else if (guests >= 100) {
+    score += 10;
+  } else {
+    score += 5;
+  }
+
+  // --------------------------------------------------
+  // 3. Event proximity
+  // --------------------------------------------------
+
+  const now = new Date();
+
+  const hoursUntilStart =
+    (start.getTime() - now.getTime()) /
+    (1000 * 60 * 60);
+
+  if (hoursUntilStart <= 24) {
+    score += 30;
+    reasons.push("event starts within 24 hours");
+  } else if (hoursUntilStart <= 72) {
+    score += 20;
+    reasons.push("event starts within 3 days");
+  } else if (hoursUntilStart <= 168) {
+    score += 10;
+    reasons.push("event starts within 7 days");
+  }
+
+  // --------------------------------------------------
+  // 4. Convert score → priority
+  // --------------------------------------------------
+
+  let priority = "P4";
+
+  if (score >= 80) {
+    priority = "P1";
+  } else if (score >= 60) {
+    priority = "P2";
+  } else if (score >= 40) {
+    priority = "P3";
+  }
+
+  return {
+    priority,
+    priorityScore: score,
+    priorityReason:
+      reasons.length > 0
+        ? reasons.join(", ")
+        : "standard operational priority",
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -46,7 +131,8 @@ export async function POST(request: Request) {
     if (!Number.isFinite(guests) || guests <= 0) {
       return NextResponse.json(
         {
-          error: "Guest count must be a valid positive number.",
+          error:
+            "Guest count must be a valid positive number.",
         },
         { status: 400 }
       );
@@ -120,14 +206,15 @@ export async function POST(request: Request) {
     // 6. Verify venue and space
     // --------------------------------------------------
 
-    const selectedSpace = await prisma.space.findUnique({
-      where: {
-        id: spaceId,
-      },
-      include: {
-        venue: true,
-      },
-    });
+    const selectedSpace =
+      await prisma.space.findUnique({
+        where: {
+          id: spaceId,
+        },
+        include: {
+          venue: true,
+        },
+      });
 
     if (!selectedSpace) {
       return NextResponse.json(
@@ -138,8 +225,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Make sure the space actually belongs to the
-    // selected venue.
+    // Make sure the selected space belongs
+    // to the selected venue.
 
     if (selectedSpace.venueId !== venueId) {
       return NextResponse.json(
@@ -182,30 +269,52 @@ export async function POST(request: Request) {
     }
 
     // --------------------------------------------------
-    // 9. Check overlapping functions
+    // 9. Check overlapping FUNCTIONS in the same SPACE
     // --------------------------------------------------
+    //
+    // IMPORTANT:
+    //
+    // We deliberately DO NOT check venue + date here.
+    //
+    // Multiple bookings can exist in the same venue
+    // on the same day.
+    //
+    // Only the SAME SPACE with overlapping time
+    // creates a conflict.
+    //
+    // Example:
+    //
+    // Venue: Jio World Convention Centre
+    //
+    // Main Hall       10:00 - 12:00  ✅
+    // Meeting Room A  10:00 - 12:00  ✅
+    // Hall B          11:00 - 13:00  ✅
+    //
+    // Main Hall       11:00 - 13:00  ❌
+    //
 
-    const conflicts = await prisma.function.findMany({
-      where: {
-        space: selectedSpace.name,
+    const conflicts =
+      await prisma.function.findMany({
+        where: {
+          space: selectedSpace.name,
 
-        startTime: {
-          lt: end,
+          startTime: {
+            lt: end,
+          },
+
+          endTime: {
+            gt: start,
+          },
         },
 
-        endTime: {
-          gt: start,
+        include: {
+          event: true,
         },
-      },
 
-      include: {
-        event: true,
-      },
-
-      orderBy: {
-        startTime: "asc",
-      },
-    });
+        orderBy: {
+          startTime: "asc",
+        },
+      });
 
     if (conflicts.length > 0) {
       return NextResponse.json(
@@ -213,25 +322,47 @@ export async function POST(request: Request) {
           error:
             "The selected space is already booked during this time.",
 
-          conflicts: conflicts.map((conflict) => ({
-            functionId: conflict.id,
-            functionName: conflict.name,
+          conflicts: conflicts.map(
+            (conflict) => ({
+              functionId: conflict.id,
 
-            eventId: conflict.eventId,
-            eventName: conflict.event.name,
+              functionName:
+                conflict.name,
 
-            startTime: conflict.startTime,
-            endTime: conflict.endTime,
+              eventId:
+                conflict.eventId,
 
-            space: conflict.space,
-          })),
+              eventName:
+                conflict.event.name,
+
+              startTime:
+                conflict.startTime,
+
+              endTime:
+                conflict.endTime,
+
+              space:
+                conflict.space,
+            })
+          ),
         },
         { status: 409 }
       );
     }
 
     // --------------------------------------------------
-    // 10. Generate event code
+    // 10. Calculate automatic priority
+    // --------------------------------------------------
+
+    const priorityData =
+      calculatePriority(
+        guests,
+        start,
+        "CONFIRMED"
+      );
+
+    // --------------------------------------------------
+    // 11. Generate event code
     // --------------------------------------------------
 
     const eventCode = `EVT-${Date.now()
@@ -239,83 +370,123 @@ export async function POST(request: Request) {
       .slice(-8)}`;
 
     // --------------------------------------------------
-    // 11. Create Event + Function
+    // 12. Create Event + Function
     // --------------------------------------------------
 
-    const result = await prisma.$transaction(async (tx) => {
-      const event = await tx.event.create({
-        data: {
-          eventCode,
+    const result =
+      await prisma.$transaction(
+        async (tx) => {
+          const event =
+            await tx.event.create({
+              data: {
+                eventCode,
 
-          name: eventName.trim(),
+                name: eventName.trim(),
 
-          status: "CONFIRMED",
+                status: "CONFIRMED",
 
-          startDate: start,
-          endDate: end,
+                startDate: start,
 
-          venue: selectedSpace.venue.name,
+                endDate: end,
 
-          venueId: venueId,
-          spaceId: spaceId,
+                venue:
+                  selectedSpace.venue.name,
 
-          guestCount: guests,
+                venueId: venueId,
 
-          description:
-            `Booked in ${selectedSpace.name}.`,
-        },
-      });
+                spaceId: spaceId,
 
-      const createdFunction = await tx.function.create({
-        data: {
-          eventId: event.id,
+                guestCount: guests,
 
-          name: eventName.trim(),
+                description:
+                  `Booked in ${selectedSpace.name}.`,
 
-          startTime: start,
-          endTime: end,
+                // Automatic operational priority
+                priority:
+                  priorityData.priority,
 
-          space: selectedSpace.name,
+                priorityScore:
+                  priorityData.priorityScore,
 
-          guestCount: guests,
+                priorityReason:
+                  priorityData.priorityReason,
+              },
+            });
 
-          status: "CONFIRMED",
+          const createdFunction =
+            await tx.function.create({
+              data: {
+                eventId: event.id,
 
-          notes:
-            `Venue: ${selectedSpace.venue.name}\n` +
-            `Space: ${selectedSpace.name}`,
-        },
-      });
+                name: eventName.trim(),
 
-      return {
-        event,
-        function: createdFunction,
-      };
-    });
+                startTime: start,
+
+                endTime: end,
+
+                space:
+                  selectedSpace.name,
+
+                guestCount: guests,
+
+                status: "CONFIRMED",
+
+                notes:
+                  `Venue: ${selectedSpace.venue.name}\n` +
+                  `Space: ${selectedSpace.name}`,
+              },
+            });
+
+          return {
+            event,
+            function: createdFunction,
+          };
+        }
+      );
 
     // --------------------------------------------------
-    // 12. Return successful booking
+    // 13. Return successful booking
     // --------------------------------------------------
 
     return NextResponse.json(
       {
         success: true,
 
-        message: "Booking created successfully.",
+        message:
+          "Booking created successfully.",
 
         event: result.event,
 
         function: result.function,
 
+        priority: {
+          level:
+            priorityData.priority,
+
+          score:
+            priorityData.priorityScore,
+
+          reason:
+            priorityData.priorityReason,
+        },
+
         venue: {
-          id: selectedSpace.venue.id,
-          name: selectedSpace.venue.name,
+          id:
+            selectedSpace.venue.id,
+
+          name:
+            selectedSpace.venue.name,
         },
 
         space: {
-          id: selectedSpace.id,
-          name: selectedSpace.name,
-          capacity: selectedSpace.capacity,
+          id:
+            selectedSpace.id,
+
+          name:
+            selectedSpace.name,
+
+          capacity:
+            selectedSpace.capacity,
         },
       },
       { status: 201 }
@@ -328,7 +499,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        error: "Failed to create booking.",
+        error:
+          "Failed to create booking.",
       },
       { status: 500 }
     );

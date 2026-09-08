@@ -24,6 +24,11 @@ model Event {
   venueId String?
   spaceId String?
 
+  // Automatic operational priority
+  priority       String @default("P3")
+  priorityScore  Int    @default(0)
+  priorityReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
