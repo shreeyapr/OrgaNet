@@ -923,13 +923,14 @@ function goToToday() {
                         <div className="mt-1 space-y-1">
                           {dayEvents.map(
                             (event) => (
-                              <button
-                                type="button"
-                                key={
-                                  event.id
-                                }
-                                className="w-full rounded-lg bg-slate-50 p-2 text-left hover:bg-slate-100"
-                              >
+                                <button
+                                  type="button"
+                                  key={event.id}
+                                  onClick={() => {
+                                    window.location.href = `/events/${event.id}`;
+                                  }}
+                                  className="w-full rounded-lg bg-slate-50 p-2 text-left hover:bg-slate-100"
+                                >
                                 <div className="flex items-start gap-2">
 
                                   <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-violet-500" />
