@@ -17,6 +17,9 @@ type Event = {
   endDate: string;
   venue?: string | null;
   guestCount?: number | null;
+  priority?: string | null;
+  priorityScore?: number | null;
+  priorityReason?: string | null;
 };
 
 type AvailabilityResult = {
@@ -132,6 +135,12 @@ const [currentDate, setCurrentDate] = useState(() => {
 
   const [bookingCreated, setBookingCreated] =
     useState(false);
+
+  const [createdPriority, setCreatedPriority] = useState<{
+    level: string;
+    score: number;
+    reason: string;
+  } | null>(null);
 
   // --------------------------------
   // Calendar calculations
@@ -278,6 +287,7 @@ const [currentDate, setCurrentDate] = useState(() => {
 
     setAvailability(null);
     setBookingCreated(false);
+    setCreatedPriority(null);
   }
 
   // --------------------------------
@@ -598,6 +608,7 @@ function selectDate(day: number) {
       );
 
       setBookingCreated(true);
+      setCreatedPriority(data.priority ?? null);
 
       setAvailability(null);
 
@@ -655,6 +666,21 @@ function goToToday() {
 
   setSelectedDate(todayFormatted);
 }
+
+  function getPriorityStyles(priority?: string | null) {
+    switch (priority) {
+      case "P1":
+        return { dot: "bg-red-500", badge: "border-red-200 bg-red-50 text-red-700", label: "P1" };
+      case "P2":
+        return { dot: "bg-orange-500", badge: "border-orange-200 bg-orange-50 text-orange-700", label: "P2" };
+      case "P3":
+        return { dot: "bg-amber-500", badge: "border-amber-200 bg-amber-50 text-amber-700", label: "P3" };
+      case "P4":
+        return { dot: "bg-emerald-500", badge: "border-emerald-200 bg-emerald-50 text-emerald-700", label: "P4" };
+      default:
+        return { dot: "bg-violet-500", badge: "border-slate-200 bg-slate-50 text-slate-600", label: "—" };
+    }
+  }
 
   // --------------------------------
   // Events for a day
@@ -1363,6 +1389,20 @@ function goToToday() {
                         The event has been successfully
                         added to the calendar.
                       </p>
+
+                      {createdPriority && (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span className={`rounded-md border px-2 py-1 text-[10px] font-bold ${getPriorityStyles(createdPriority.level).badge}`}>
+                            Priority {createdPriority.level}
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-500">
+                            Score {createdPriority.score}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {createdPriority.reason}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                   </div>
